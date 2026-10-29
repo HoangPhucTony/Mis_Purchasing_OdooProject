@@ -22,3 +22,6 @@ sessions/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Báo cáo đồ án (chứa thông tin cá nhân) - chỉ giữ ở máy local
+docs/NHOM1_BAOCADOAN.pdf
