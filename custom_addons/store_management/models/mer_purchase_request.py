@@ -1,5 +1,7 @@
 from collections import defaultdict
 
+from markupsafe import Markup
+
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 
@@ -263,93 +265,6 @@ class MerPurchaseRequest(models.Model):
                 )
             )
 
-    @api.depends(
-        "line_ids.fulfillment_method",
-        "line_ids.internal_flow_state",
-        "line_ids.purchase_order_id",
-        "line_ids.purchase_order_id.picking_ids.state",
-        "line_ids.purchase_order_id.picking_ids.wm_qc_status",
-        "line_ids.purchase_order_id.picking_ids.picking_type_id.warehouse_id",
-        "line_ids.internal_picking_id.state",
-        "line_ids.internal_picking_id.wm_qc_status",
-    )
-    def _compute_internal_flow_metrics(self):
-        for request in self:
-            internal_lines = request.line_ids.filtered(
-                lambda line: line.fulfillment_method in ("internal", "supplier_central")
-            )
-            central_lines = request.line_ids.filtered(
-                lambda line: line.fulfillment_method in ("internal", "supplier_central")
-            )
-            request.internal_line_count = len(central_lines)
-            request.pending_central_check_count = len(
-                internal_lines.filtered(lambda line: line.internal_flow_state == "pending_check")
-            )
-            request.ready_delivery_count = len(
-                internal_lines.filtered(lambda line: line.internal_flow_state == "ready_delivery")
-            )
-            request.insufficient_stock_count = len(
-                internal_lines.filtered(lambda line: line.internal_flow_state == "waiting_stock")
-            )
-            waiting_receipt_count = len(
-                central_lines.filtered(
-                    lambda line: line.fulfillment_method == "supplier_central"
-                    and line.purchase_order_id
-                    and not line.purchase_order_id.picking_ids.filtered(
-                        lambda picking: picking.picking_type_code == "incoming"
-                        and picking.picking_type_id.warehouse_id
-                        and getattr(picking.picking_type_id.warehouse_id, "mis_role", False) == "central"
-                        and (picking.state == "done" or picking.wm_qc_status == "rejected")
-                    )
-                )
-            )
-            request.waiting_delivery_count = len(
-                central_lines.filtered(
-                    lambda line: line.internal_flow_state == "waiting_delivery"
-                    and line.internal_picking_id.state not in ("done", "cancel")
-                )
-            )
-            waiting_store_receipt_count = len(
-                central_lines.filtered(
-                    lambda line: line.internal_flow_state == "waiting_store_receipt"
-                    and line.store_receipt_picking_id
-                    and line.store_receipt_picking_id.state not in ("done", "cancel")
-                )
-            )
-            has_rejected_line = any(
-                line.internal_flow_state == "rejected"
-                or (line.internal_picking_id and line.internal_picking_id.wm_qc_status == "rejected")
-                or (
-                    line.fulfillment_method == "supplier_central"
-                    and line.purchase_order_id.picking_ids.filtered(
-                        lambda picking: picking.picking_type_code == "incoming"
-                        and picking.picking_type_id.warehouse_id
-                        and getattr(picking.picking_type_id.warehouse_id, "mis_role", False) == "central"
-                        and picking.wm_qc_status == "rejected"
-                    )
-                )
-                for line in central_lines
-            )
-
-            if not central_lines:
-                request.central_flow_status = _("Không qua Kho tổng")
-            elif request.insufficient_stock_count:
-                request.central_flow_status = _("Kho tổng chưa đủ hàng")
-            elif request.pending_central_check_count:
-                request.central_flow_status = _("Chờ Kho tổng kiểm hàng để giao")
-            elif request.ready_delivery_count:
-                request.central_flow_status = _("\u0110\u1ee7 h\u00e0ng, ch\u1edd x\u00e1c nh\u1eadn giao")
-            elif waiting_receipt_count:
-                request.central_flow_status = _("Chờ NCC giao Kho tổng")
-            elif request.waiting_delivery_count:
-                request.central_flow_status = _("Chờ Kho tổng giao hàng")
-            elif has_rejected_line:
-                request.central_flow_status = _("Có lô hàng lỗi")
-            elif all(request._is_line_logistically_completed(line) for line in central_lines):
-                request.central_flow_status = _("Đã giao hàng về cửa hàng")
-            else:
-                request.central_flow_status = _("Đang xử lý")
-
     @api.onchange("line_ids")
     def _onchange_line_ids(self):
         return
@@ -430,51 +345,6 @@ class MerPurchaseRequest(models.Model):
             and not line.internal_picking_id
         )
 
-    def _get_ready_internal_lines(self):
-        self.ensure_one()
-        return self.line_ids.filtered(
-            lambda line: line.fulfillment_method in ("internal", "supplier_central")
-            and line.internal_flow_state == "ready_delivery"
-            and not line.internal_picking_id
-        )
-
-    def _build_central_stock_check_message(self, ready_lines, insufficient_lines):
-        self.ensure_one()
-        message_lines = [
-            _("Kho tổng đã kiểm tra tồn kho cho PR <b>%s</b>.") % self.name,
-        ]
-        if ready_lines:
-            message_lines.append(_("Các dòng đủ hàng chờ giao:"))
-            message_lines.append(
-                "<ul>%s</ul>"
-                % "".join(
-                    "<li>%s: khả dụng %.2f, cần giao %.2f, sau giao còn %.2f.</li>"
-                    % (
-                        line.product_id.display_name,
-                        line.source_available_qty,
-                        line.approved_qty,
-                        line.remaining_after_dispatch_qty,
-                    )
-                    for line in ready_lines
-                )
-            )
-        if insufficient_lines:
-            message_lines.append(_("Các dòng chưa đủ hàng:"))
-            message_lines.append(
-                "<ul>%s</ul>"
-                % "".join(
-                    "<li>%s: khả dụng %.2f, cần giao %.2f, thiếu %.2f.</li>"
-                    % (
-                        line.product_id.display_name,
-                        line.source_available_qty,
-                        line.approved_qty,
-                        abs(line.remaining_after_dispatch_qty),
-                    )
-                    for line in insufficient_lines
-                )
-            )
-        return "".join(message_lines)
-
     def _is_line_logistically_completed(self, line):
         self.ensure_one()
         # Một dòng PR coi là hoàn tất khi:
@@ -539,7 +409,9 @@ class MerPurchaseRequest(models.Model):
                 )
                 for po in relevant_pos:
                     try:
-                        self.env["store.vendor.bill"].sudo()._create_from_purchase_orders(po)
+                        # savepoint: lỗi SQL bên trong không được làm hỏng cả transaction
+                        with self.env.cr.savepoint():
+                            self.env["store.vendor.bill"].sudo()._create_from_purchase_orders(po)
                     except Exception as e:
                         request.message_post(body=_("Hệ thống không thể tự động tạo hóa đơn cho PO %s: %s") % (po.name, str(e)))
             elif has_started_documents:
@@ -758,11 +630,13 @@ class MerPurchaseRequest(models.Model):
         self._check_store_menu_action_allowed()
         
         # Bắt buộc gán số lượng duyệt = 0 cho các sản phẩm đã dừng đặt hàng
-        stopped_lines = self.line_ids.filtered(lambda l: l.product_id.x_mer_stop_ordering)
-        if stopped_lines:
-            stopped_lines.write({'approved_qty': 0.0})
-            stopped_names = ", ".join(stopped_lines.mapped('product_id.display_name'))
-            self.message_post(body=_("Lưu ý: Các sản phẩm sau đã bị dừng đặt hàng (Approved Qty = 0): %s") % stopped_names)
+        for request in self:
+            stopped_lines = request.line_ids.filtered(lambda l: l.product_id.x_mer_stop_ordering)
+            if stopped_lines:
+                stopped_lines.write({'approved_qty': 0.0})
+                stopped_names = ", ".join(stopped_lines.mapped('product_id.display_name'))
+                # message_post() chỉ chạy trên 1 bản ghi -> lặp từng PR (duyệt nhiều PR từ list view)
+                request.message_post(body=_("Lưu ý: Các sản phẩm sau đã bị dừng đặt hàng (Approved Qty = 0): %s") % stopped_names)
             
         return super().action_approve()
 
@@ -881,54 +755,6 @@ class MerPurchaseRequest(models.Model):
             "target": "current",
         }
 
-
-    def action_confirm_central_stock(self):
-        self.ensure_one()
-        self._ensure_approved_quantities()
-        pending_lines = self._get_pending_internal_lines()
-        if not pending_lines:
-            raise UserError(_("PR này không có dòng nào đang chờ Kho tổng kiểm hàng để giao."))
-
-        insufficient_lines = pending_lines.filtered(lambda line: line.source_available_qty < line.approved_qty)
-        if insufficient_lines:
-            insufficient_lines.with_context(store_skip_sync_rule=True).write({"internal_flow_state": "waiting_stock"})
-            available_lines = pending_lines - insufficient_lines
-            if available_lines:
-                available_lines.with_context(store_skip_sync_rule=True).write({"internal_flow_state": "pending_check"})
-            self.message_post(
-                body=_(
-                    "Kho tổng chưa đủ hàng để giao cho các sản phẩm: %s. Đơn được tạm giữ ở trạng thái Chưa đủ hàng."
-                )
-                % ", ".join(insufficient_lines.mapped("product_id.display_name"))
-            )
-            return {
-                "type": "ir.actions.act_window",
-                "res_model": "mer.purchase.request",
-                "res_id": self.id,
-                "view_mode": "form",
-                "views": [(False, "form")],
-                "target": "current",
-                "context": dict(self.env.context, central_check_menu=1),
-            }
-
-        self._create_internal_pickings_for_lines(pending_lines)
-        self.message_post(body=_("Kho tổng đã kiểm đủ hàng và tạo phiếu giao cho cửa hàng."))
-
-        return {
-            "type": "ir.actions.act_window",
-            "res_model": "mer.purchase.request",
-            "res_id": self.id,
-            "view_mode": "form",
-            "views": [(False, "form")],
-            "target": "current",
-            "context": dict(self.env.context, central_check_menu=1),
-        }
-
-    ready_delivery_count = fields.Integer(
-        string="\u0110\u1ee7 h\u00e0ng ch\u1edd giao",
-        compute="_compute_internal_flow_metrics",
-        store=True,
-    )
 
     @api.depends(
         "line_ids.fulfillment_method",
@@ -1132,13 +958,14 @@ class MerPurchaseRequest(models.Model):
 
     def _build_central_stock_check_message(self, ready_lines, insufficient_lines):
         self.ensure_one()
-        chunks = [_("Kho t\u1ed5ng \u0111\u00e3 ki\u1ec3m tra t\u1ed3n kho cho PR <b>%s</b>.") % self.name]
+        # message_post() escape chu\u1ed7i th\u01b0\u1eddng -> d\u00f9ng Markup \u0111\u1ec3 HTML hi\u1ec3n th\u1ecb \u0111\u00fang (tham s\u1ed1 v\u1eabn \u0111\u01b0\u1ee3c escape)
+        chunks = [Markup(_("Kho t\u1ed5ng \u0111\u00e3 ki\u1ec3m tra t\u1ed3n kho cho PR <b>%s</b>.")) % self.name]
         if ready_lines:
-            chunks.append(_("C\u00e1c d\u00f2ng \u0111\u1ee7 h\u00e0ng ch\u1edd giao:"))
+            chunks.append(Markup("<br/>%s") % _("C\u00e1c d\u00f2ng \u0111\u1ee7 h\u00e0ng ch\u1edd giao:"))
             chunks.append(
-                "<ul>%s</ul>"
-                % "".join(
-                    "<li>%s: kha dung %.2f, can giao %.2f, sau giao con %.2f.</li>"
+                Markup("<ul>%s</ul>")
+                % Markup("").join(
+                    Markup("<li>%s: kh\u1ea3 d\u1ee5ng %.2f, c\u1ea7n giao %.2f, sau giao c\u00f2n %.2f.</li>")
                     % (
                         line.product_id.display_name,
                         line.source_available_qty,
@@ -1149,11 +976,11 @@ class MerPurchaseRequest(models.Model):
                 )
             )
         if insufficient_lines:
-            chunks.append(_("C\u00e1c d\u00f2ng ch\u01b0a \u0111\u1ee7 h\u00e0ng:"))
+            chunks.append(Markup("<br/>%s") % _("C\u00e1c d\u00f2ng ch\u01b0a \u0111\u1ee7 h\u00e0ng:"))
             chunks.append(
-                "<ul>%s</ul>"
-                % "".join(
-                    "<li>%s: khả dụng %.2f, cần giao %.2f, thiếu %.2f.</li>"
+                Markup("<ul>%s</ul>")
+                % Markup("").join(
+                    Markup("<li>%s: khả dụng %.2f, cần giao %.2f, thiếu %.2f.</li>")
                     % (
                         line.product_id.display_name,
                         line.source_available_qty,
@@ -1163,7 +990,7 @@ class MerPurchaseRequest(models.Model):
                     for line in insufficient_lines
                 )
             )
-        return "".join(chunks)
+        return Markup("").join(chunks)
 
     def action_confirm_central_stock(self):
         self.ensure_one()
@@ -1377,78 +1204,6 @@ class MerPurchaseRequestLine(models.Model):
             self.supplier_id = self._get_product_supplier_candidates()[:1]
 
     @api.depends(
-        "fulfillment_method",
-        "purchase_order_id",
-        "purchase_order_id.picking_ids.state",
-        "purchase_order_id.picking_ids.wm_qc_status",
-        "purchase_order_id.picking_ids.picking_type_id.warehouse_id",
-        "internal_flow_state",
-        "internal_picking_id.state",
-        "internal_picking_id.wm_qc_status",
-    )
-    def _compute_route_status_display(self):
-        for line in self:
-            status = _("Chưa khởi tạo")
-            if line.fulfillment_method == "supplier":
-                if line.purchase_order_id:
-                    receipt_pickings = line.purchase_order_id.picking_ids.filtered(
-                        lambda picking: picking.picking_type_code == "incoming"
-                        and picking.picking_type_id.warehouse_id == line.request_warehouse_id
-                    )
-                    if receipt_pickings.filtered(lambda picking: picking.state == "done"):
-                        status = _("Cửa hàng đã nhận hàng")
-                    elif receipt_pickings.filtered(lambda picking: picking.wm_qc_status == "rejected"):
-                        status = _("Hàng lỗi")
-                    elif receipt_pickings:
-                        status = _("Chờ cửa hàng nhận và QC")
-                    else:
-                        status = _("PO đã tạo")
-                else:
-                    status = _("Chờ tạo PO NCC")
-            elif line.fulfillment_method == "supplier_central":
-                if line.purchase_order_id:
-                    receipt_pickings = line.purchase_order_id.picking_ids.filtered(
-                        lambda picking: picking.picking_type_code == "incoming"
-                        and picking.picking_type_id.warehouse_id
-                        and getattr(picking.picking_type_id.warehouse_id, "mis_role", False) == "central"
-                    )
-                    if receipt_pickings.filtered(lambda picking: picking.wm_qc_status == "rejected"):
-                        status = _("Kho tổng QC không đạt")
-                    elif line.internal_picking_id and line.internal_picking_id.state == "done":
-                        status = _("Cửa hàng đã nhận hàng")
-                    elif line.internal_picking_id:
-                        status = _("Chờ Kho tổng giao hàng")
-                    elif line.internal_flow_state == "waiting_stock":
-                        status = _("Kho tổng chưa đủ hàng để giao")
-                    elif receipt_pickings.filtered(lambda picking: picking.state == "done"):
-                        status = _("Kho tổng đã nhận, chờ kiểm hàng để giao")
-                    elif receipt_pickings:
-                        status = _("Chờ Kho tổng QC hàng NCC")
-                    else:
-                        status = _("PO đã tạo")
-                else:
-                    status = _("Chờ tạo PO NCC")
-            elif line.fulfillment_method == "internal":
-                if line.internal_picking_id and line.internal_picking_id.state == "done":
-                    status = _("Cửa hàng đã nhận hàng")
-                elif (
-                    line.internal_flow_state == "rejected"
-                    or (line.internal_picking_id and line.internal_picking_id.wm_qc_status == "rejected")
-                ):
-                    status = _("Hàng lỗi")
-                elif line.internal_flow_state == "waiting_delivery":
-                    status = _("Chờ Kho tổng giao hàng")
-                elif line.internal_flow_state == "waiting_stock":
-                    status = _("Kho tổng chưa đủ hàng để giao")
-                elif line.internal_flow_state == "pending_check":
-                    status = _("Chờ Kho tổng kiểm hàng để giao")
-                elif line.internal_flow_state == "delivered":
-                    status = _("Cửa hàng đã nhận hàng")
-                else:
-                    status = _("Chưa chuyển sang Kho tổng")
-            line.route_status_display = status
-
-    @api.depends(
         "product_id",
         "request_company_id",
         "request_warehouse_id",
@@ -1533,7 +1288,7 @@ class MerPurchaseRequestLine(models.Model):
             if not warehouses:
                 line.availability_breakdown = _("Chưa thiết lập Kho tổng cho công ty này.")
             elif not breakdown:
-                line.availability_breakdown = _("Không thấy tồn kẹo tại: %s") % ", ".join(scanned_wh_names)
+                line.availability_breakdown = _("Không thấy tồn kho tại: %s") % ", ".join(scanned_wh_names)
             else:
                 line.availability_breakdown = " | ".join(breakdown)
                 
@@ -1762,8 +1517,6 @@ class MerPurchaseRequestLine(models.Model):
                     status = _("Cửa hàng đã nhận hàng")
                 else:
                     status = _("Chưa chuyển sang Kho tổng")
-            line.route_status_display = status
-
             line.route_status_display = status
 
     x_demand_status = fields.Selection(

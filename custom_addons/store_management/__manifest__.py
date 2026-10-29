@@ -18,6 +18,7 @@
     "data": [
         "data/mer_excess_receipt_data.xml",
         "data/stock_lot_sequence_data.xml",
+        "data/ir_cron_data.xml",
         "security/store_security.xml",
         "security/ir.model.access.csv",
         "security/ir_rule.xml",

@@ -71,13 +71,10 @@ class StoreVendorBill(models.Model):
     )
     notes = fields.Text(string="Ghi chú")
 
-    _sql_constraints = [
-        (
-            "unique_purchase_bill",
-            "unique(purchase_id)",
-            "PO này đã có hóa đơn Nhà cung cấp.",
-        )
-    ]
+    _unique_purchase_bill = models.Constraint(
+        "unique(purchase_id)",
+        "PO này đã có hóa đơn Nhà cung cấp.",
+    )
 
     @api.depends("line_ids.price_subtotal")
     def _compute_amount_total(self):

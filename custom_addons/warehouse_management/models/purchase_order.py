@@ -76,6 +76,8 @@ class PurchaseOrder(models.Model):
             # Chỉ cố gắng gọi button_done nếu nó tồn tại (Tính năng Lock PO được bật)
             if hasattr(order, 'button_done'):
                 try:
-                    order.button_done()
+                    # savepoint: nuốt lỗi mà không để transaction ở trạng thái hỏng
+                    with self.env.cr.savepoint():
+                        order.button_done()
                 except Exception:
                     pass

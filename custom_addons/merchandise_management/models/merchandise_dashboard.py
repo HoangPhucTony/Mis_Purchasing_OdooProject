@@ -40,9 +40,12 @@ class MerchandiseDashboard(models.AbstractModel):
         total_processing = purchase_request_model.search_count([("state", "in", ["approved", "po_created"])])
         total_done = purchase_request_model.search_count([("state", "=", "done")])
         total_rejected = purchase_request_model.search_count([("state", "=", "rejected")])
-        qc_rejected = self.env["stock.picking"].search_count(
-            [("wm_qc_status", "=", "rejected"), ("state", "!=", "cancel")]
-        )
+        # wm_qc_status do module warehouse_management bổ sung -> kiểm tra trước để dashboard không lỗi
+        qc_rejected = 0
+        if "wm_qc_status" in self.env["stock.picking"]._fields:
+            qc_rejected = self.env["stock.picking"].search_count(
+                [("wm_qc_status", "=", "rejected"), ("state", "!=", "cancel")]
+            )
 
         pipeline_domain = []
         if has_store_field:
@@ -95,7 +98,10 @@ class MerchandiseDashboard(models.AbstractModel):
         total_budget_spent = sum(active_budgets.mapped('spent_amount'))
         total_budget_limit = sum(active_budgets.mapped('budget_amount'))
         
-        low_stock_count = self.env['store.product.line'].search_count([('needs_replenishment', '=', True)])
+        # store.product.line thuộc module store_management (có thể chưa cài)
+        low_stock_count = 0
+        if 'store.product.line' in self.env:
+            low_stock_count = self.env['store.product.line'].search_count([('needs_replenishment', '=', True)])
         
         # Thống kê SKU
         new_sku_count = self.env['product.template'].search_count([('x_mer_sku_lifecycle', '=', 'new')])

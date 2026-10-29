@@ -117,11 +117,18 @@ class StoreStore(models.Model):
         readonly=True,
     )
 
-    _sql_constraints = [
-        ("store_code_company_uniq", "unique(code, company_id)", "Mã cửa hàng phải là duy nhất theo công ty."),
-        ("store_partner_uniq", "unique(partner_id)", "Mỗi cửa hàng chỉ được liên kết với một đối tác."),
-        ("store_warehouse_uniq", "unique(warehouse_id)", "Mỗi cửa hàng chỉ được liên kết với một kho."),
-    ]
+    sale_order_ids = fields.One2many("sale.order", "store_id", string="Đơn bán")
+
+    # Odoo 19 bỏ qua _sql_constraints (chỉ log cảnh báo) -> phải khai báo bằng models.Constraint
+    _store_code_company_uniq = models.Constraint(
+        "unique(code, company_id)", "Mã cửa hàng phải là duy nhất theo công ty."
+    )
+    _store_partner_uniq = models.Constraint(
+        "unique(partner_id)", "Mỗi cửa hàng chỉ được liên kết với một đối tác."
+    )
+    _store_warehouse_uniq = models.Constraint(
+        "unique(warehouse_id)", "Mỗi cửa hàng chỉ được liên kết với một kho."
+    )
 
     @api.constrains("code")
     def _check_code(self):
@@ -137,26 +144,19 @@ class StoreStore(models.Model):
         sale_order_count_map = {}
         purchase_request_count_map = {}
         if self.ids:
-            sale_order_data = self.env["sale.order"].read_group(
+            # read_group() đã deprecated trên Odoo 19 -> dùng _read_group()
+            sale_order_data = self.env["sale.order"]._read_group(
                 [("store_id", "in", self.ids)],
                 ["store_id"],
-                ["store_id"],
+                ["__count"],
             )
-            pr_data = self.env["mer.purchase.request"].read_group(
+            pr_data = self.env["mer.purchase.request"]._read_group(
                 [("store_id", "in", self.ids)],
                 ["store_id"],
-                ["store_id"],
+                ["__count"],
             )
-            sale_order_count_map = {
-                item["store_id"][0]: item["store_id_count"]
-                for item in sale_order_data
-                if item.get("store_id")
-            }
-            purchase_request_count_map = {
-                item["store_id"][0]: item["store_id_count"]
-                for item in pr_data
-                if item.get("store_id")
-            }
+            sale_order_count_map = {store.id: count for store, count in sale_order_data if store}
+            purchase_request_count_map = {store.id: count for store, count in pr_data if store}
 
         for store in self:
             store.product_count = len(store.product_line_ids)
@@ -165,16 +165,15 @@ class StoreStore(models.Model):
             store.purchase_request_count = purchase_request_count_map.get(store.id, 0)
             store.sales_order_count = sale_order_count_map.get(store.id, 0)
 
+    # Trường store=True cần depends, nếu không doanh thu/lợi nhuận chỉ tính 1 lần lúc tạo cửa hàng (luôn = 0)
+    @api.depends("sale_order_ids.state", "sale_order_ids.amount_untaxed")
     def _compute_financial_metrics(self):
         for store in self:
             # Bỏ quyết toán nội bộ theo yêu cầu
             total_cost = 0.0
             
             # 2. Tính doanh thu từ Sale Orders
-            sales = self.env["sale.order"].search([
-                ("store_id", "=", store.id),
-                ("state", "in", ("sale", "done")),
-            ])
+            sales = store.sale_order_ids.filtered(lambda order: order.state in ("sale", "done"))
             total_revenue = sum(sales.mapped("amount_untaxed"))
             
             # 3. Tính Lợi nhuận
@@ -551,13 +550,10 @@ class StoreProductLine(models.Model):
         compute="_compute_stock_metrics",
     )
 
-    _sql_constraints = [
-        (
-            "store_product_unique",
-            "unique(store_id, product_id)",
-            "Mỗi sản phẩm chỉ được khai báo một lần trong cùng cửa hàng.",
-        ),
-    ]
+    _store_product_unique = models.Constraint(
+        "unique(store_id, product_id)",
+        "Mỗi sản phẩm chỉ được khai báo một lần trong cùng cửa hàng.",
+    )
 
     @api.depends("product_id", "location_id", "min_qty", "max_qty")
     def _compute_stock_metrics(self):
@@ -658,6 +654,17 @@ class StoreProductLine(models.Model):
                 line.days_of_stock = available_qty / velocity
             else:
                 line.days_of_stock = 999.0 if available_qty > 0 else 0.0
+
+    @api.model
+    def _cron_refresh_stock_metrics(self):
+        """Tồn kho / tốc độ bán thay đổi theo thời gian nên các trường lưu trữ
+        (trạng thái tồn, ngày tồn, tốc độ bán) cần được tính lại định kỳ."""
+        lines = self.search([])
+        if lines:
+            for fname in ("sales_velocity_30d", "days_of_stock", "stock_status_type"):
+                self.env.add_to_compute(self._fields[fname], lines)
+            lines._recompute_recordset(["sales_velocity_30d", "days_of_stock", "stock_status_type"])
+        return True
 
     @api.constrains("min_qty", "max_qty")
     def _check_qty_range(self):

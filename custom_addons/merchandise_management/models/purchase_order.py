@@ -1,4 +1,4 @@
-from odoo import models
+from odoo import api, models
 
 
 class PurchaseOrder(models.Model):
@@ -31,6 +31,7 @@ class PurchaseOrderLine(models.Model):
             {"product_id", "product_qty", "price_unit", "price_subtotal", "order_id"} & set(vals)
         )
 
+    @api.model_create_multi
     def create(self, vals_list):
         lines = super().create(vals_list)
         confirmed_orders = lines.mapped("order_id").filtered(lambda order: order.state in ("purchase", "done"))

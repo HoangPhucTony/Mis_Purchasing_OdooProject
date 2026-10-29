@@ -1,3 +1,5 @@
+from markupsafe import Markup
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
@@ -184,10 +186,11 @@ class StockPicking(models.Model):
                     # 1. Tự động tạo hóa đơn NCC (Vendor Bill) cho PO
                     if picking.purchase_id and picking.purchase_id.invoice_status == 'to invoice':
                         try:
-                            if "store.vendor.bill" in self.env.registry:
-                                self.env["store.vendor.bill"].sudo()._create_from_purchase_orders(picking.purchase_id)
-                            else:
-                                with self.env.cr.savepoint():
+                            # savepoint cho cả 2 nhánh: lỗi SQL không được làm hỏng transaction nhập kho
+                            with self.env.cr.savepoint():
+                                if "store.vendor.bill" in self.env.registry:
+                                    self.env["store.vendor.bill"].sudo()._create_from_purchase_orders(picking.purchase_id)
+                                else:
                                     picking.purchase_id.sudo().with_context(create_bill=True).action_create_invoice()
                         except Exception as e:
                             picking.message_post(
@@ -294,10 +297,11 @@ class StockPicking(models.Model):
             }
         )
         return_picking.action_confirm()
+        # message_post() escape chuỗi thường -> dùng Markup để link hiển thị đúng
         self.message_post(
-            body=_(
-                "QC không đạt. Đã tạo phiếu trả hàng <a href='#' data-oe-model='stock.picking' data-oe-id='%d'>%s</a> về nhà cung cấp."
-            )
+            body=Markup(_(
+                "QC không đạt. Đã tạo phiếu trả hàng <a href='#' data-oe-model='stock.picking' data-oe-id='%s'>%s</a> về nhà cung cấp."
+            ))
             % (return_picking.id, return_picking.name),
             subject=_("QC không đạt - Đã tạo phiếu trả hàng"),
         )
@@ -344,9 +348,9 @@ class StockPicking(models.Model):
         )
         return_picking.action_confirm()
         self.message_post(
-            body=_(
-                "QC không đạt. Đã tạo phiếu hoàn trả nội bộ <a href='#' data-oe-model='stock.picking' data-oe-id='%d'>%s</a>."
-            )
+            body=Markup(_(
+                "QC không đạt. Đã tạo phiếu hoàn trả nội bộ <a href='#' data-oe-model='stock.picking' data-oe-id='%s'>%s</a>."
+            ))
             % (return_picking.id, return_picking.name),
             subject=_("QC không đạt - Đã tạo phiếu hoàn trả nội bộ"),
         )

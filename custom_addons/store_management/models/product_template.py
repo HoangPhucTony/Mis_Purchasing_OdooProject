@@ -50,9 +50,10 @@ class ProductTemplate(models.Model):
         return super().search_fetch(domain, field_names, offset=offset, limit=limit, order=order)
 
     @api.model
-    def name_search(self, name="", args=None, operator="ilike", limit=100):
-        args = self._apply_store_sale_domain(args)
-        return super().name_search(name, args, operator, limit)
+    def name_search(self, name="", domain=None, operator="ilike", limit=100):
+        # Odoo 19 đổi tên tham số 'args' -> 'domain'; giữ đúng chữ ký để các lời gọi dạng keyword không lỗi
+        domain = self._apply_store_sale_domain(domain)
+        return super().name_search(name, domain, operator, limit)
 
     @api.model
     def web_search_read(self, domain, specification, offset=0, limit=None, order=None, count_limit=None):

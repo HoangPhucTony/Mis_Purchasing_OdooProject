@@ -1,5 +1,7 @@
 import logging
 
+from markupsafe import Markup
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.float_utils import float_compare
@@ -331,7 +333,7 @@ class MerDeliveryDiscrepancyWizard(models.TransientModel):
                     self._create_or_update_excess_report(product, expected_qty, actual_qty, product_lines)
                     created_report_count += 1
                 else:
-                    excess_messages.append(_("<li>Sản phẩm %s: dư %s cái.</li>") % (product.display_name, actual_qty - expected_qty))
+                    excess_messages.append(Markup(_("<li>Sản phẩm %s: dư %s cái.</li>")) % (product.display_name, actual_qty - expected_qty))
             elif comparison < 0:
                 self._create_or_update_shortage_report(product, expected_qty, actual_qty, destination_warehouse)
                 created_report_count += 1
@@ -348,7 +350,7 @@ class MerDeliveryDiscrepancyWizard(models.TransientModel):
 
         if excess_messages:
             self.picking_id.message_post(
-                body=_("<b>Ghi nhận dư hàng từ NCC (không tạo báo cáo):</b><ul>%s</ul>") % "".join(excess_messages),
+                body=Markup(_("<b>Ghi nhận dư hàng từ NCC (không tạo báo cáo):</b><ul>%s</ul>")) % Markup("").join(excess_messages),
                 subtype_xmlid="mail.mt_note",
             )
 
@@ -363,14 +365,15 @@ class MerDeliveryDiscrepancyWizard(models.TransientModel):
             shortage_reports = self.env["mer.discrepancy.report"].search([("picking_id", "=", self.picking_id.id)])
             
             for r in excess_reports:
-                report_links.append(_("<li>Dư hàng: %s (Sản phẩm: %s)</li>") % (r.name, r.product_id.display_name))
+                report_links.append(Markup(_("<li>Dư hàng: %s (Sản phẩm: %s)</li>")) % (r.name, r.product_id.display_name))
             for r in shortage_reports:
                 reason_label = _("Thiếu hàng") if r.reason == "shortage" else _("Hàng lỗi")
-                report_links.append(_("<li>%s: %s (Sản phẩm: %s)</li>") % (reason_label, r.name, r.product_id.display_name))
+                report_links.append(Markup(_("<li>%s: %s (Sản phẩm: %s)</li>")) % (reason_label, r.name, r.product_id.display_name))
 
-        msg_body = _("Đã cập nhật số lượng thực nhận từ bước kiểm hàng thực tế.")
+        # message_post() escape chuỗi thường -> dùng Markup để HTML hiển thị đúng
+        msg_body = Markup("%s") % _("Đã cập nhật số lượng thực nhận từ bước kiểm hàng thực tế.")
         if report_links:
-            msg_body += _("<br/><b>Các báo cáo sai lệch đã tạo/cập nhật:</b><ul>%s</ul>") % "".join(report_links)
+            msg_body += Markup(_("<br/><b>Các báo cáo sai lệch đã tạo/cập nhật:</b><ul>%s</ul>")) % Markup("").join(report_links)
         
         self.picking_id.message_post(body=msg_body)
 

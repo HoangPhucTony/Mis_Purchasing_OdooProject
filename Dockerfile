@@ -21,9 +21,10 @@ CMD odoo \
     --db_port=$DB_PORT \
     --db_user=$DB_USER \
     --db_password=$DB_PASSWORD \
+    --admin-passwd=${ODOO_MASTER_PASSWORD:-admin} \
     --proxy-mode \
-    --db-filter=^OdooProjectV2$ \
-    --max-cron-threads=0 \
+    --list-db=True \
+    --db-filter=${DB_FILTER:-.*} \
+    --max-cron-threads=${MAX_CRON_THREADS:-1} \
     --limit-time-real=0 \
-    --limit-time-cpu=0 \
-    -d OdooProjectV2
+    --limit-time-cpu=0

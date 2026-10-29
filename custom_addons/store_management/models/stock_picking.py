@@ -1,6 +1,12 @@
+import logging
+
+from markupsafe import Markup
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.float_utils import float_compare
+
+_logger = logging.getLogger(__name__)
 
 
 class StockPicking(models.Model):
@@ -618,14 +624,14 @@ class StockPicking(models.Model):
         items = []
         for move in self.move_ids.filtered(lambda current_move: current_move.state != "cancel" and current_move.wm_damaged_qty > 0):
             items.append(
-                _("<li><b>%s</b>: %s hư hỏng. Ghi chú: %s</li>")
+                Markup(_("<li><b>%s</b>: %s hư hỏng. Ghi chú: %s</li>"))
                 % (
                     move.product_id.display_name,
                     move.wm_damaged_qty,
                     move.wm_damage_note or _("Tự động ghi nhận lỗi tại Kho tổng"),
                 )
             )
-        return "".join(items)
+        return Markup("").join(items)
 
     def _prepare_auto_qc_rejection_from_damage(self):
         for picking in self:
@@ -757,15 +763,15 @@ class StockPicking(models.Model):
             if merch_partners:
                 request.message_subscribe(partner_ids=merch_partners)
 
-            body = _(
+            body = Markup(_(
                 "<b>Kho tổng QC không đạt.</b><br/>"
                 "Phiếu <b>%s</b> từ NCC <b>%s</b> đã bị từ chối vì có hàng lỗi.<br/>"
                 "<b>Chi tiết lỗi:</b><ul>%s</ul>"
                 "Các dòng PR liên quan đã được mở lại để Merchandise tự tạo PO mới."
-            ) % (
+            )) % (
                 picking.name,
                 picking.partner_id.display_name or _("Nhà cung cấp"),
-                picking._build_damage_details_html() or _("<li>Đã phát hiện lỗi trên lô hàng.</li>"),
+                picking._build_damage_details_html() or Markup(_("<li>Đã phát hiện lỗi trên lô hàng.</li>")),
             )
             picking.message_post(
                 body=body,
@@ -811,7 +817,9 @@ class StockPicking(models.Model):
         )
         for po in purchase_orders:
             try:
-                self.env["store.vendor.bill"].sudo()._create_from_purchase_orders(po)
+                # savepoint: lỗi SQL khi tạo hóa đơn không được làm hỏng transaction xác nhận phiếu kho
+                with self.env.cr.savepoint():
+                    self.env["store.vendor.bill"].sudo()._create_from_purchase_orders(po)
             except Exception as e:
                 related_pickings = self.filtered(
                     lambda picking: picking.purchase_id == po
@@ -853,7 +861,7 @@ class StockPicking(models.Model):
 
             if picking.wm_has_shortage_alert:
                 picking.mer_request_id.message_post(
-                    body=_("<b>Thông báo:</b> Kho tổng đã chủ động giao trước phần hàng có sẵn cho PR %s, dù NCC vẫn đang giao thiếu.") % picking.mer_request_id.name,
+                    body=Markup(_("<b>Thông báo:</b> Kho tổng đã chủ động giao trước phần hàng có sẵn cho PR %s, dù NCC vẫn đang giao thiếu.")) % picking.mer_request_id.name,
                     subtype_xmlid="mail.mt_comment",
                 )
 
@@ -1224,7 +1232,7 @@ class StockPicking(models.Model):
                         }
                     )
                     self.message_post(
-                        body=_("<b>Từ chối dư hàng (Sản phẩm %s):</b> Phát hiện dư %s cái so với chứng từ. Do luồng nhận từ NCC, hệ thống tự động hoàn trả xe và chỉ nhập kho số lượng đúng PO.") % (
+                        body=Markup(_("<b>Từ chối dư hàng (Sản phẩm %s):</b> Phát hiện dư %s cái so với chứng từ. Do luồng nhận từ NCC, hệ thống tự động hoàn trả xe và chỉ nhập kho số lượng đúng PO.")) % (
                             move.product_id.display_name,
                             actual_qty - expected_qty
                         ),
@@ -1289,9 +1297,11 @@ class StockPicking(models.Model):
                     old_qty = po_line.product_qty
                     try:
                         # Dùng sudo vì nhân viên kho thường không có quyền sửa PO
-                        po_line.sudo().write({'product_qty': target_qty})
+                        # savepoint: nếu ghi PO lỗi thì chỉ rollback phần này, không hỏng cả transaction
+                        with self.env.cr.savepoint():
+                            po_line.sudo().write({'product_qty': target_qty})
                         picking.message_post(
-                            body=_("<b>Điều chỉnh Ngân sách:</b> Đã tự động giảm số lượng PO line (%s) từ %s xuống %s để khớp với thực nhận, giúp giải phóng ngân sách cho đơn bù hàng.") % (
+                            body=Markup(_("<b>Điều chỉnh Ngân sách:</b> Đã tự động giảm số lượng PO line (%s) từ %s xuống %s để khớp với thực nhận, giúp giải phóng ngân sách cho đơn bù hàng.")) % (
                                 move.product_id.display_name,
                                 old_qty,
                                 target_qty
@@ -1303,15 +1313,15 @@ class StockPicking(models.Model):
     def _notify_merchandise_store_receipt_rejected(self):
         merch_users = self._get_merchandise_notification_users()
         merch_partners = merch_users.mapped("partner_id").ids
-        damage_details = self._build_damage_details_html() or _("<li>Lô hàng bị từ chối do có hàng hư hỏng.</li>")
+        damage_details = self._build_damage_details_html() or Markup(_("<li>Lô hàng bị từ chối do có hàng hư hỏng.</li>"))
         source_label = self.store_route_label or _("Nguồn giao")
         source_party = self.store_source_party_display or self.partner_id.display_name or _("Nguồn giao")
-        body = _(
+        body = Markup(_(
             "<b>Cửa hàng từ chối lô nhập do hàng lỗi.</b><br/>"
             "Phiếu <b>%s</b> thuộc luồng <b>%s</b>, nguồn giao <b>%s</b> đã bị đánh dấu Hàng lỗi và không nhập vào tồn kho.<br/>"
             "<b>Chi tiết lỗi:</b><ul>%s</ul>"
             "Merchandise cần theo dõi để bù hàng hoặc phối hợp Kho tổng xử lý hàng lỗi."
-        ) % (
+        )) % (
             self.name,
             source_label,
             source_party,
@@ -1549,9 +1559,9 @@ class StockPicking(models.Model):
             
             if return_picking:
                 picking.message_post(
-                    body=_(
+                    body=Markup(_(
                         "Đã tạo phiếu trả NCC <b>%s</b> cho toàn bộ lô hàng lỗi. Các sản phẩm/số lượng đạt còn lại vẫn tiếp tục được nhập vào Kho tổng."
-                    )
+                    ))
                     % return_picking.name,
                     subtype_xmlid="mail.mt_note",
                 )
@@ -1792,23 +1802,23 @@ class StockPicking(models.Model):
                 if not request:
                     continue
 
-                damaged_details = ""
+                damaged_details = Markup("")
                 for move in picking.move_ids.filtered(lambda current_move: current_move.state != "cancel"):
                     qty_damaged = move.wm_damaged_qty or move.quantity
-                    damaged_details += _("<li><b>%s</b>: %s cái hư hỏng. Ghi chú: %s</li>") % (
+                    damaged_details += Markup(_("<li><b>%s</b>: %s cái hư hỏng. Ghi chú: %s</li>")) % (
                         move.product_id.display_name,
                         qty_damaged,
                         move.wm_damage_note or _("Đang cập nhật"),
                     )
 
                 request.message_post(
-                    body=_(
+                    body=Markup(_(
                         "<b>Lô hàng lỗi!</b><br/>"
                         "Phiếu <b>%s</b> tại <b>%s</b> đã QC không đạt.<br/>"
                         "<b>Sản phẩm bị lỗi:</b><ul>%s</ul>"
                         "Phiếu giao nhận đã được dừng theo trạng thái QC hiện tại. "
                         "Vui lòng kiểm tra và xử lý lại đơn hàng."
-                    )
+                    ))
                     % (
                         picking.name,
                         picking.store_receiving_store_id.name or picking.picking_type_id.warehouse_id.display_name,

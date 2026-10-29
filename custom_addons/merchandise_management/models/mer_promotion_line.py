@@ -150,10 +150,12 @@ class MerPromotionLine(models.Model):
     def _compute_sold_qty(self):
         for line in self:
             line.sold_qty = 0.0
-            if line.product_id and line.warehouse_id:
+            # Dòng mới chưa lưu (NewId) không có id thật -> domain '= False' sẽ đếm nhầm mọi đơn bán không KM
+            real_id = line._origin.id
+            if real_id and line.product_id and line.warehouse_id:
                 # Tìm các Sale Order Line có gắn dòng KM này
                 lines = self.env['sale.order.line'].sudo().search([
-                    ('promotion_line_id', '=', line._origin.id if hasattr(line, '_origin') else line.id),
+                    ('promotion_line_id', '=', real_id),
                     ('state', 'in', ['sale', 'done'])
                 ])
                 

@@ -37,6 +37,8 @@ class MerPromotion(models.Model):
     target_store_ids = fields.Many2many('stock.warehouse', string='Cửa hàng áp dụng')
     
     # Hiển thị lot_ids từ lines
+    # Trường store=True bắt buộc phải khai báo depends, nếu không sẽ không bao giờ được tính lại
+    @api.depends('line_ids.product_id')
     def _compute_product_ids(self):
         for rec in self:
             rec.product_ids = rec.line_ids.mapped('product_id')
@@ -88,6 +90,8 @@ class MerPromotion(models.Model):
             raise UserError(_("Chỉ có thể lấy thêm hàng khi chương trình đang ở trạng thái Nháp."))
             
         today = fields.Date.today()
+        if not self._has_store_expiry_support():
+            raise UserError(_("Cần cài module Store Management (vai trò kho & hạn sử dụng lô) để dùng chức năng này."))
         # 1. Xác định chính xác các Kho là Cửa hàng
         store_warehouses = self.env['stock.warehouse'].search([('mis_role', '=', 'store')])
         store_locations = store_warehouses.mapped('lot_stock_id')
@@ -300,11 +304,22 @@ class MerPromotion(models.Model):
             }
         }
 
+    @api.model
+    def _has_store_expiry_support(self):
+        """mis_role (store_management) và expiration_date (product_expiry) không thuộc module này."""
+        return (
+            'mis_role' in self.env['stock.warehouse']._fields
+            and 'expiration_date' in self.env['stock.lot']._fields
+        )
+
     # Logic tự động tạo KM cho hàng sắp hết hạn (Gộp theo đợt)
     @api.model
     def _generate_expiry_promotions(self):
         today = fields.Date.today()
         from odoo.tools import float_compare
+        # Cron chạy cả khi chưa cài store_management -> bỏ qua thay vì lỗi domain
+        if not self._has_store_expiry_support():
+            return
         
         # 1. Xác định các Kho Cửa hàng và Địa điểm chính
         store_warehouses = self.env['stock.warehouse'].search([('mis_role', '=', 'store')])
@@ -393,7 +408,7 @@ class MerPromotion(models.Model):
             promo_name = _("KM Hàng cận hạn - %s") % today.strftime('%d/%m/%Y')
             new_promo = self.create({
                 'name': promo_name,
-                'code': "EXP-%s" % today.strftime('%Y%m%d%H%M'), 
+                'code': "EXP-%s" % fields.Datetime.now().strftime('%Y%m%d%H%M%S'),
                 'is_expiry_promo': True,
                 'target_store_ids': [(6, 0, list(final_warehouse_ids))],
                 'lot_ids': [(6, 0, list(final_lot_ids))],
@@ -473,6 +488,8 @@ class MerPromotion(models.Model):
             # Cập nhật giá sản phẩm ngay lập tức
             products = promotion.line_ids.mapped('product_id')
             self._update_product_prices(products=products)
+            # Thông báo cho các cửa hàng đúng 1 lần khi kích hoạt
+            promotion._notify_stores_promotion_activated()
 
     def _all_limited_lines_exhausted(self):
         self.ensure_one()
@@ -487,16 +504,22 @@ class MerPromotion(models.Model):
 
             if promotion._all_limited_lines_exhausted():
                 promotion.action_expire()
-            
-            # Gửi thông báo
-            if promotion.state == 'active': # Chỉ gửi nếu chưa bị chuyển sang expired ngay
+
+    def _notify_stores_promotion_activated(self):
+        """Gửi thông báo KM mới cho các cửa hàng áp dụng.
+
+        Trước đây thông báo này nằm trong _check_and_expire(), vốn được gọi mỗi khi
+        xác nhận giao một đơn bán có KM, nên cửa hàng bị nhận lặp lại liên tục.
+        """
+        for promotion in self:
+            if promotion.state == 'active':
                 store_partners = promotion.target_store_ids.mapped('partner_id')
                 if store_partners:
                     promotion.message_subscribe(partner_ids=store_partners.ids)
-                    
+
                     # Sử dụng Markup để render HTML
                     from markupsafe import Markup
-                    
+
                     # Tạo danh sách sản phẩm và mức giảm để hiện trong thông báo
                     line_details = Markup("").join([
                         Markup("<li>• %s: <span style='color: #16a34a; font-weight: bold;'>%s%%</span></li>") % (line.product_id.name, line.discount_rate)
@@ -516,7 +539,7 @@ class MerPromotion(models.Model):
                                 "<b>📉 Chi tiết mức giảm:</b>"
                                 "<ul style='margin-top: 5px; padding-left: 15px; list-style: none;'>%s</ul>"
                             "</div>"
-                            "<p style='margin-bottom: 0; font-style: italic; color: #166534; font-size: 0.9em; border-top: 1px dashed #bbf7d0; pt: 8px;'>"
+                            "<p style='margin-bottom: 0; font-style: italic; color: #166534; font-size: 0.9em; border-top: 1px dashed #bbf7d0; padding-top: 8px;'>"
                                 "💡 <i>%s</i>"
                             "</p>"
                         "</div>"

@@ -218,39 +218,6 @@ class MerPurchaseRequest(models.Model):
 
     x_mer_budget_info = fields.Html(string='Thông tin ngân sách', compute='_compute_x_mer_budget_info')
 
-    @api.depends('line_ids.price_subtotal', 'line_ids.product_id.categ_id')
-    def _compute_x_mer_budget_info(self):
-        for request in self:
-            cat_amounts = {}
-            for line in request.line_ids:
-                cat = line.product_id.categ_id
-                cat_amounts[cat] = cat_amounts.get(cat, 0.0) + line.price_subtotal
-            
-            html = "<div class='alert alert-light'>"
-            for cat, amount in cat_amounts.items():
-                if not cat:
-                    continue
-                budget = self.env['mer.purchase.budget'].search([
-                    ('category_id', '=', cat.id),
-                    ('state', '=', 'active'),
-                    ('date_from', '<=', fields.Date.today()),
-                    ('date_to', '>=', fields.Date.today()),
-                ], limit=1)
-                
-                status_color = "green"
-                if not budget:
-                    status_text = "Không có ngân sách thiết lập"
-                    status_color = "gray"
-                elif budget.remaining_amount < amount:
-                    status_text = "VƯỢT NGÂN SÁCH (Còn: {:,.0f})".format(budget.remaining_amount)
-                    status_color = "red"
-                else:
-                    status_text = "Trong tầm kiểm soát (Còn: {:,.0f})".format(budget.remaining_amount)
-                
-                html += f"<li><b>{cat.name}:</b> {status_text} <span style='color: {status_color};'>●</span></li>"
-            html += "</div>"
-            request.x_mer_budget_info = html if cat_amounts else False
-    
     def _get_budget_date(self):
         self.ensure_one()
         return self.date_request or fields.Date.context_today(self)
@@ -443,17 +410,13 @@ class MerPurchaseRequest(models.Model):
 
     @api.model
     def _get_purchase_order_count_map(self):
-        grouped_data = self.env['purchase.order'].sudo().read_group(
+        # read_group() đã bị đánh dấu deprecated trên Odoo 19, dùng _read_group() thay thế
+        grouped_data = self.env['purchase.order'].sudo()._read_group(
             [('origin', '!=', False)],
             ['origin'],
-            ['origin'],
-            lazy=False,
+            ['__count'],
         )
-        return {
-            data['origin']: data.get('origin_count', data.get('__count', 0))
-            for data in grouped_data
-            if data.get('origin')
-        }
+        return {origin: count for origin, count in grouped_data if origin}
 
     def _compute_purchase_order_count(self):
         count_map = self._get_purchase_order_count_map()
@@ -600,6 +563,7 @@ class MerPurchaseRequest(models.Model):
 
     # Tạo PO từ yêu cầu đã duyệt
     def action_create_po(self):
+        self.ensure_one()
         if self.state != 'approved':
             raise UserError(_("Yêu cầu cần được phê duyệt trước khi tạo PO."))
         
