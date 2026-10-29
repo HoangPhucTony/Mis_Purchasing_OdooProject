@@ -1,0 +1,6 @@
+# Chuẩn hóa xuống dòng LF trong repo (tránh cảnh báo LF/CRLF giữa Windows và Linux)
+* text=auto eol=lf
+
+*.png  binary
+*.jpg  binary
+*.pdf  binary

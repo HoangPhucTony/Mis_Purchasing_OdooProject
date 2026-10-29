@@ -4,6 +4,7 @@
     "summary": "Kiểm soát QC đầu vào và sai lệch cho phiếu nhập kho",
     "category": "Custom_Odoo",
     "author": "Tony",
+    "website": "https://github.com/HoangPhucTony/Mis_Purchasing_OdooProject",
     "license": "LGPL-3",
     "depends": ["stock", "purchase_stock", "web", "merchandise_management"],
     "data": [

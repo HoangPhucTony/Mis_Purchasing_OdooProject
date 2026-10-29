@@ -152,7 +152,7 @@ flowchart TD
     M --> K
 ```
 
-Sơ đồ BPMN đầy đủ (Bizagi): [`docs/SODOBPMN.pdf`](docs/SODOBPMN.pdf).
+Sơ đồ BPMN đầy đủ (Bizagi): [`docs/bpmn-to-be-process.pdf`](docs/bpmn-to-be-process.pdf).
 
 ## 🖼 Ảnh giao diện
 
@@ -224,7 +224,7 @@ Secret của repository GitHub: `HF_DEPLOY_ODOO` — Hugging Face access token c
 │   └── warehouse_management/     # QC nhận hàng, trả hàng
 ├── docs/
 │   ├── images/                   # ảnh minh họa README
-│   └── SODOBPMN.pdf              # sơ đồ BPMN
+│   └── bpmn-to-be-process.pdf    # sơ đồ BPMN
 ├── .github/workflows/            # đồng bộ Hugging Face Spaces
 ├── Dockerfile                    # image chạy trên Space
 ├── docker-compose.yml            # môi trường phát triển local (Odoo + PostgreSQL)

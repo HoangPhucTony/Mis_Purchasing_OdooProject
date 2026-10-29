@@ -4,6 +4,7 @@
     "summary": "Quản lý danh mục cửa hàng, bổ sung hàng và vận hành tồn kho tại cửa hàng",
     "category": "Custom_Odoo",
     "author": "Tony",
+    "website": "https://github.com/HoangPhucTony/Mis_Purchasing_OdooProject",
     "license": "LGPL-3",
     "depends": [
         "mail",

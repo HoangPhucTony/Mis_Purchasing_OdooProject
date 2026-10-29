@@ -12,8 +12,17 @@ jobs:
         with:
           fetch-depth: 0
           lfs: true
+      # Hugging Face Spaces cần YAML front-matter ở đầu README.md, nhưng GitHub lại hiển thị
+      # nó thành bảng -> chỉ ghép metadata vào README trong commit tạm đẩy lên Space.
+      - name: Add Space metadata to README
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cat .github/hf-space-metadata.md README.md > README.hf.md
+          mv README.hf.md README.md
+          git commit -am "Add Hugging Face Space metadata"
       - name: Push to hub
         env:
-          HF_TOKEN: ${{ secrets.HF_DEPLOY_ODOO }} 
+          HF_TOKEN: ${{ secrets.HF_DEPLOY_ODOO }}
         run: |
-          git push --force https://IceMisha:$HF_TOKEN@huggingface.co/spaces/IceMisha/OdooProject main
+          git push --force https://IceMisha:$HF_TOKEN@huggingface.co/spaces/IceMisha/OdooProject HEAD:main

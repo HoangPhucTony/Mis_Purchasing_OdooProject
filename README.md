@@ -1,14 +1,3 @@
----
-title: MIS Odoo Project
-emoji: 🚀
-colorFrom: yellow
-colorTo: blue
-sdk: docker
-app_port: 7860
-pinned: false
-license: lgpl-3.0
----
-
 <div align="center">
 
 # 🛒 MIS Purchasing — Retail Procurement on Odoo 19
@@ -165,7 +154,7 @@ flowchart TD
     M --> K
 ```
 
-The full BPMN model (Bizagi) is available in [`docs/SODOBPMN.pdf`](docs/SODOBPMN.pdf).
+The full BPMN model (Bizagi) is available in [`docs/bpmn-to-be-process.pdf`](docs/bpmn-to-be-process.pdf).
 
 ## 🖼 Screenshots
 
@@ -239,7 +228,7 @@ Repository secret: `HF_DEPLOY_ODOO` — a Hugging Face access token with write p
 │   └── warehouse_management/     # receiving QC, returns
 ├── docs/
 │   ├── images/                   # README screenshots
-│   └── SODOBPMN.pdf              # BPMN model
+│   └── bpmn-to-be-process.pdf    # BPMN model
 ├── .github/workflows/            # sync to Hugging Face Spaces
 ├── Dockerfile                    # image used by the Space
 ├── docker-compose.yml            # local development (Odoo + PostgreSQL)
