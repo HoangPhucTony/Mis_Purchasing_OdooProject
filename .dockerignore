@@ -9,3 +9,4 @@ docs
 README.md
 LICENSE
 docker-compose.yml
+odoo.conf.example

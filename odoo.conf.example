@@ -1,0 +1,18 @@
+; Odoo 19 configuration for running from source on a local machine.
+; Copy to odoo.conf and adjust the paths and database credentials.
+
+[options]
+; Odoo core addons first, then the custom addons of this repository
+addons_path = C:\odoo\odoo-19.0\addons,C:\odoo\Mis_Purchasing_OdooProject\custom_addons
+
+db_host = localhost
+db_port = 5432
+db_user = odoo
+db_password = odoo
+
+; Master password for the database manager (/web/database/manager)
+admin_passwd = change-me
+
+http_port = 8069
+; Scheduler threads (near-expiry promotions, store stock metrics)
+max_cron_threads = 1

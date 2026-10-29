@@ -25,3 +25,6 @@ desktop.ini
 
 # Báo cáo đồ án (chứa thông tin cá nhân) - chỉ giữ ở máy local
 docs/NHOM1_BAOCADOAN.pdf
+
+# Local Odoo config (copied from odoo.conf.example)
+odoo.conf
