@@ -1,0 +1,11 @@
+.git
+.github
+docs
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+.env
+.env.*
+README.md
+LICENSE
+docker-compose.yml

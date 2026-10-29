@@ -1,6 +1,6 @@
 {
     'name': 'Merchandise Management',
-    'version': '1.0',
+    'version': '19.0.1.0.0',
     'summary': 'Quản lý nghiệp vụ Merchandise trên Odoo 19',
     'description': """
         Module quản lý các nghiệp vụ của Merchandise bao gồm:
@@ -13,6 +13,7 @@
     """,
     'category': 'Custom_Odoo', # Phân loại app trên dashboard
     'author': 'Ngan',
+    'license': 'LGPL-3',
     # Các module Odoo tiêu chuẩn cần cài đặt trước
     'depends': ['purchase', 'stock', 'product', 'uom', 'mail', 'purchase_stock'],
     # Thứ tự nạp các file dữ liệu và giao diện

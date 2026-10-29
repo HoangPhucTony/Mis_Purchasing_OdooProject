@@ -1,3 +1,5 @@
+# Môi trường phát triển LOCAL. Mật khẩu bên dưới chỉ dùng trên máy cá nhân,
+# không dùng lại cho môi trường public (xem .env.example).
 services:
   db:
     image: postgres:16
@@ -27,6 +29,7 @@ services:
       DB_PASSWORD: odoo
       ODOO_MASTER_PASSWORD: admin
       DB_FILTER: .*
+      MAX_CRON_THREADS: 1
     volumes:
       - odoo-web-data:/var/lib/odoo
       - ./custom_addons:/mnt/extra-addons
